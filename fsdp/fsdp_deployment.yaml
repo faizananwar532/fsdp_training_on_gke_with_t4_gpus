@@ -22,10 +22,11 @@ metadata:
   name: training-data-pvc
 spec:
   accessModes:
-    - ReadWriteMany  # For shared access across pods
+    - ReadWriteMany   # For shared access across pods
   resources:
     requests:
-      storage: 100Gi  # Adjust based on your dataset size
+      storage: 100Gi # Adjust based on your dataset size
+  storageClassName: standard-rwx
 ---
 apiVersion: v1
 kind: Service
@@ -83,10 +84,8 @@ spec:
           mountPath: /output
         - name: fsdp-config-volume
           mountPath: /etc/fsdp-config
-        - name: shared-memory
-          mountPath: /dev/shm  # For efficient data loader
         - name: dshm
-          mountPath: /dev/shm  # Additional shared memory
+          mountPath: /dev/shm  # Single shared memory mount with increased size
         env:
         - name: PYTHONUNBUFFERED
           value: "1"
@@ -99,7 +98,7 @@ spec:
         - name: NCCL_SOCKET_IFNAME
           value: "eth0"
         - name: MASTER_ADDR
-          value: "fsdp-training-0.fsdp-training.default.svc.cluster.local"
+          value: "fsdp-training-0.fsdp-training.training.svc.cluster.local"  # Updated to reflect your namespace
         - name: MASTER_PORT
           value: "29500"
         - name: WORLD_SIZE
@@ -147,9 +146,6 @@ spec:
       - name: fsdp-config-volume
         configMap:
           name: fsdp-config
-      - name: shared-memory
-        emptyDir:
-          medium: Memory
       - name: dshm
         emptyDir:
           medium: Memory

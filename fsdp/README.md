@@ -22,6 +22,12 @@ And you've verified it's running:
 kubectl get pods -n kube-system | grep nvidia
 ```
 
+Then create a namespace for your fsdp
+```bash
+kubectl create namespace training
+kubectl config set-context --current --namespace=training
+```
+
 ## 3. Setting Up PersistentVolume for Data Storage
 
 Create a PersistentVolume and PersistentVolumeClaim for your training data:
@@ -82,11 +88,13 @@ metadata:
 spec:
   containers:
   - name: data-uploader
-    image: python:3.9
+    image: python:3.9-slim
     command: ["sleep", "3600"]
     volumeMounts:
     - name: training-data
       mountPath: /data
+    securityContext:
+      runAsUser: 0  # ✅ run as root user
   volumes:
   - name: training-data
     persistentVolumeClaim:
@@ -99,6 +107,9 @@ Wait for the pod to be running:
 
 ```bash
 kubectl wait --for=condition=Ready pod/data-uploader
+
+# Install NumPy using pip
+kubectl exec -it data-uploader -- pip install numpy
 ```
 
 Copy your training scripts to the PVC:
@@ -119,19 +130,21 @@ import numpy as np
 import os
 
 # Create train data
+os.makedirs('/data/train', exist_ok=True)
 np.save('/data/train/features.npy', np.random.randn(10000, 1024).astype(np.float32))
 np.save('/data/train/labels.npy', np.random.randint(0, 10, size=10000))
 
 # Create validation data
+os.makedirs('/data/val', exist_ok=True)
 np.save('/data/val/features.npy', np.random.randn(2000, 1024).astype(np.float32))
 np.save('/data/val/labels.npy', np.random.randint(0, 10, size=2000))
 
 print("Dummy data created successfully!")
 EOF
 
+# Copy and execute
 kubectl cp create_dummy_data.py data-uploader:/data/
-kubectl exec -it data-uploader -- apt-get update && apt-get install -y python3-numpy
-kubectl exec -it data-uploader -- python3 /data/create_dummy_data.py
+kubectl exec -it data-uploader -- python /data/create_dummy_data.py
 
 # Delete the uploader pod when done
 kubectl delete pod data-uploader
@@ -168,6 +181,7 @@ kubectl apply -f fsdp_deployment.yaml
 Watch the pods as they start up:
 
 ```bash
+kubectl get statefulset
 kubectl get pods -w
 ```
 

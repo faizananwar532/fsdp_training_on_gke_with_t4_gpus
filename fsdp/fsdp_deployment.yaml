@@ -1,0 +1,156 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fsdp-config
+data:
+  fsdp_config.yaml: |
+    # FSDP Configuration
+    fsdp:
+      sharding_strategy: FULL_SHARD  # This is Zero-3 equivalent
+      cpu_offload: false  # Set to true if you want CPU offloading
+      backward_prefetch: BACKWARD_PRE  # Prefetch gradients for backward pass
+      forward_prefetch: true  # Prefetch parameters for forward pass
+      mixed_precision: true  # Enable mixed precision for T4 GPUs
+      activation_checkpointing: false  # Enable if you need activation checkpointing
+      communication_param:
+        process_group_backend: "nccl"  # Best for GPU communication
+      device: "cuda"  # Use CUDA for computation
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: training-data-pvc
+spec:
+  accessModes:
+    - ReadWriteMany  # For shared access across pods
+  resources:
+    requests:
+      storage: 100Gi  # Adjust based on your dataset size
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fsdp-training
+spec:
+  clusterIP: None  # Headless service for StatefulSet
+  selector:
+    app: fsdp-training
+  ports:
+  - port: 29500
+    name: nccl
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: fsdp-training
+spec:
+  serviceName: "fsdp-training"
+  replicas: 2  # Number of T4 GPUs
+  selector:
+    matchLabels:
+      app: fsdp-training
+  template:
+    metadata:
+      labels:
+        app: fsdp-training
+    spec:
+      terminationGracePeriodSeconds: 30
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: cloud.google.com/gke-accelerator
+                operator: In
+                values:
+                - nvidia-tesla-t4
+      containers:
+      - name: pytorch-fsdp
+        image: nvcr.io/nvidia/pytorch:23.01-py3  # NVIDIA optimized PyTorch image
+        resources:
+          limits:
+            nvidia.com/gpu: 1  # One GPU per pod
+            cpu: "30"  # Slightly under your 32 cores
+            memory: "110Gi"  # Slightly under your 120GB RAM
+          requests:
+            nvidia.com/gpu: 1
+            cpu: "24"
+            memory: "90Gi"
+        volumeMounts:
+        - name: training-data
+          mountPath: /data
+        - name: output-data
+          mountPath: /output
+        - name: fsdp-config-volume
+          mountPath: /etc/fsdp-config
+        - name: shared-memory
+          mountPath: /dev/shm  # For efficient data loader
+        - name: dshm
+          mountPath: /dev/shm  # Additional shared memory
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: OMP_NUM_THREADS
+          value: "16"
+        - name: NCCL_DEBUG
+          value: "INFO"
+        - name: NCCL_IB_DISABLE
+          value: "0"
+        - name: NCCL_SOCKET_IFNAME
+          value: "eth0"
+        - name: MASTER_ADDR
+          value: "fsdp-training-0.fsdp-training.default.svc.cluster.local"
+        - name: MASTER_PORT
+          value: "29500"
+        - name: WORLD_SIZE
+          value: "2"  # Total number of GPUs
+        - name: HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: NODE_RANK
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        command:
+        - "/bin/bash"
+        - "-c"
+        - |
+          # Extract pod index from hostname for NODE_RANK
+          IFS='-' read -ra ADDR <<< "$HOSTNAME"
+          export NODE_RANK=${ADDR[-1]}
+          
+          # Install required packages
+          pip install pyyaml
+          
+          # Copy training scripts
+          echo "Copying training scripts..."
+          cp /data/fsdp_trainer.py /workspace/
+          cp /data/optimized_dataloader.py /workspace/
+          
+          echo "Starting training with NODE_RANK=$NODE_RANK, WORLD_SIZE=$WORLD_SIZE"
+          cd /workspace
+          python fsdp_trainer.py \
+            --config /etc/fsdp-config/fsdp_config.yaml \
+            --data-path /data \
+            --output-path /output \
+            --node-rank $NODE_RANK \
+            --batch-size 64 \
+            --epochs 10 \
+            --lr 0.001
+      volumes:
+      - name: training-data
+        persistentVolumeClaim:
+          claimName: training-data-pvc
+      - name: output-data
+        emptyDir: {}
+      - name: fsdp-config-volume
+        configMap:
+          name: fsdp-config
+      - name: shared-memory
+        emptyDir:
+          medium: Memory
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: "16Gi"

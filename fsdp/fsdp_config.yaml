@@ -1,0 +1,17 @@
+# FSDP Configuration
+fsdp:
+  sharding_strategy: FULL_SHARD  # Zero-3 equivalent
+  cpu_offload: false  # Set to true only if you're memory constrained
+  backward_prefetch: BACKWARD_PRE  # Prefetch gradients for backward pass
+  forward_prefetch: true  # Prefetch parameters for forward pass
+  mixed_precision: true  # Enable mixed precision for T4 GPUs
+  activation_checkpointing: false  # Enable if you have memory issues
+  device_init:
+    init_device_type: "cuda"
+  communication_param:
+    process_group_backend: "nccl"  # Best for GPU communication
+    nccl_debug: INFO
+  optimization:
+    no_sync_for_first_batch: true  # Performance optimization
+    tensor_parallel_grad_reduce: true  # Parallel gradient reduction
+  device: "cuda"  # Use CUDA for computation

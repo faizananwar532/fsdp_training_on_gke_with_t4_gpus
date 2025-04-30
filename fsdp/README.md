@@ -13,16 +13,19 @@ I can see you've already set up most of the environment. Let's confirm and compl
 ## 2. Deploy NVIDIA Device Plugin (Already Done)
 
 You've already applied the NVIDIA device plugin:
+
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/GoogleCloudPlatform/container-engine-accelerators/master/nvidia-driver-installer/cos/daemonset-preloaded.yaml
 ```
 
 And you've verified it's running:
+
 ```bash
 kubectl get pods -n kube-system | grep nvidia
 ```
 
-Then create a namespace for your fsdp
+Then create a namespace for your FSDP:
+
 ```bash
 kubectl create namespace training
 kubectl config set-context --current --namespace=training
@@ -45,7 +48,6 @@ spec:
     requests:
       storage: 100Gi
   storageClassName: standard-rwx
-
 EOF
 ```
 
@@ -100,7 +102,6 @@ spec:
     persistentVolumeClaim:
       claimName: training-data-pvc
 EOF
-
 ```
 
 Wait for the pod to be running:
@@ -196,6 +197,45 @@ Check logs from worker node (pod 1):
 ```bash
 kubectl logs -f fsdp-training-1
 ```
+
+## Current Status: Successfully Deployed
+
+Based on the above steps, the deployment is working as expected:
+
+### What's Working Successfully:
+
+#### FSDP with Zero-3 Equivalent
+Your configuration is using FULL_SHARD sharding strategy, which is the PyTorch FSDP equivalent of DeepSpeed ZeRO-3. The logs show this configuration was successfully loaded.
+
+#### NCCL Communication 
+The logs confirm NCCL is properly initialized:
+- "NCCL version 2.16.5+cuda12.0"
+- "Using network Socket"
+- The NCCL connection between nodes is established
+
+#### Distributed Training
+The logs show:
+- "Initializing process: rank=0, world_size=2" 
+- Proper multi-node setup is indicated
+- Communication between nodes is working via the headless service
+
+#### Training Progress
+The training has started successfully with:
+- Multiple batches processed
+- Loss and accuracy metrics being tracked
+- Checkpoint saved at the end of the epoch
+
+#### Data Loading
+Your custom dataloader is correctly loading data from the persistent volume:
+- "Loaded 10000 samples from /data/train"
+- "Loaded 2000 samples from /data/val"
+
+### Confirmation of Requirements:
+
+✅ PyTorch with FSDP wrapper: The model is running with FSDP as shown in the logs  
+✅ Zero-3 optimizer: Using FULL_SHARD strategy which is equivalent to ZeRO-3  
+✅ Proper data loading: The dataloader is successfully loading and distributing data  
+✅ NCCL library: Running and properly configured for distributed communication  
 
 ## 9. Deploying Using Kubeflow Pipelines (Optional)
 
@@ -331,5 +371,3 @@ kubectl delete configmap fsdp-config
    ```bash
    kubectl describe service fsdp-training
    ```
-
-   

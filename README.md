@@ -54,8 +54,8 @@ This framework is optimized for the following hardware configuration:
 
 1. Clone this repository
    ```bash
-   git clone https://github.com/yourusername/gcp-fsdp-framework.git
-   cd gcp-fsdp-framework
+   git clone https://github.com/faizananwar532/fsdp_training_on_gke_with_t4_gpus
+   cd fsdp_training_on_gke_with_t4_gpus
    ```
 
 2. Set up your GCP infrastructure following the instructions in the [GCP IaaC README](./gcp_iaac/README.md)

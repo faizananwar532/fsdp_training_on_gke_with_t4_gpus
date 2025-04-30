@@ -227,6 +227,28 @@ def save_checkpoint(model, optimizer, scaler, epoch, args, best=False):
     torch.save(full_state_dict, checkpoint_path)
     logger.info(f"Checkpoint saved to {checkpoint_path}")
 
+# Define the auto_wrap_policy function
+def get_auto_wrap_policy(min_num_params=100000):
+    """
+    Create an auto wrap policy function for FSDP based on parameter size
+    
+    Args:
+        min_num_params (int): Minimum number of parameters for auto wrapping
+        
+    Returns:
+        Callable: Auto wrap policy function
+    """
+    def custom_auto_wrap_policy(
+        module, recurse, nonwrapped_numel, min_params=min_num_params
+    ):
+        return size_based_auto_wrap_policy(
+            module=module,
+            recurse=recurse,
+            min_num_params=min_params,
+            nonwrapped_numel=nonwrapped_numel,
+        )
+    return custom_auto_wrap_policy
+
 def main():
     # Parse arguments
     args = parse_args()
@@ -277,7 +299,9 @@ def main():
     
     # Setup FSDP wrapping
     fsdp_config_dict = setup_fsdp(fsdp_config)
-    auto_wrap_policy = size_based_auto_wrap_policy(min_num_params=100000)
+    
+    # Fixed: Use the updated auto_wrap_policy function
+    auto_wrap_policy = get_auto_wrap_policy(min_num_params=100000)
     
     # Wrap model with FSDP
     model = FSDP(
